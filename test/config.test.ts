@@ -27,6 +27,7 @@ describe("loadConfig", () => {
     delete process.env.MAX_FILE_SIZE;
     delete process.env.ENABLE_TELEGRAM_LOGIN;
     delete process.env.ENABLE_TELEGRAM_REACTIONS;
+    delete process.env.CODEX_WORKSPACE;
     delete process.env.container;
   });
 
@@ -101,6 +102,8 @@ describe("loadConfig", () => {
       showTurnTokenUsage: false,
       enableTelegramLogin: true,
       enableTelegramReactions: false,
+      requiredMcpServers: ["graphify", "home_assistant"],
+      graphifyHealthUrl: "http://localhost:4000/health",
     });
   });
 
@@ -144,6 +147,8 @@ describe("loadConfig", () => {
     expect(config.showTurnTokenUsage).toBe(false);
     expect(config.enableTelegramLogin).toBe(true);
     expect(config.enableTelegramReactions).toBe(false);
+    expect(config.requiredMcpServers).toEqual(["graphify", "home_assistant"]);
+    expect(config.graphifyHealthUrl).toBe("http://localhost:4000/health");
     expect(config.workspace).toBe(process.cwd());
   });
 

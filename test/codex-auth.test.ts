@@ -1,6 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockExecFile = vi.hoisted(() => vi.fn());
+const mockReadFileSync = vi.hoisted(() => vi.fn(() => {
+  throw new Error("ENOENT");
+}));
+
+vi.mock("node:fs", () => ({
+  readFileSync: mockReadFileSync,
+}));
 
 vi.mock("node:child_process", () => ({
   execFile: mockExecFile,
@@ -28,7 +35,7 @@ function mockExecFailure(stderr: string, stdout = "", code?: string): void {
   });
 }
 
-// Helper to make mockExecFile throw (ENOENT — command not found)
+// Helper to make mockExecFile throw (ENOENT - command not found)
 function mockExecNotFound(): void {
   mockExecFile.mockImplementation((_cmd: string, _args: string[], _opts: unknown, cb: Function) => {
     const error = new Error("spawn codex ENOENT") as NodeJS.ErrnoException;
@@ -64,6 +71,8 @@ describe("codex-auth", () => {
       expect(status.authenticated).toBe(true);
       expect(status.method).toBe("cli");
       expect(status.detail).toContain("user@example.com");
+      expect(String(mockExecFile.mock.calls[0]?.[0]).toLowerCase()).toContain("\\system32\\cmd.exe");
+      expect(mockExecFile.mock.calls[0]?.[2]).not.toMatchObject({ shell: true });
     });
 
     it("reports unauthenticated when CLI auth fails", async () => {

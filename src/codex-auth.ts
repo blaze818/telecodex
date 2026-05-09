@@ -1,4 +1,7 @@
 import { execFile } from "node:child_process";
+import { readFileSync } from "node:fs";
+import { join, resolve } from "node:path";
+import { homedir } from "node:os";
 
 export interface AuthStatus {
   authenticated: boolean;
@@ -11,7 +14,6 @@ export interface LoginResult {
   message: string;
 }
 
-const CODEX_CLI = "codex";
 const COMMAND_TIMEOUT_MS = 10_000;
 const AUTH_CACHE_TTL_MS = 30_000;
 
@@ -27,6 +29,24 @@ let cachedAuthStatus: { status: AuthStatus; expiresAt: number } | undefined;
  *
  * Results are cached for 30 seconds to avoid per-message CLI invocations.
  */
+function checkAuthFile(): AuthStatus | null {
+  try {
+    const authPath = join(homedir(), ".codex", "auth.json");
+    const raw = readFileSync(authPath, "utf-8");
+    const data = JSON.parse(raw);
+    if (data.auth_mode && data.tokens) {
+      return {
+        authenticated: true,
+        method: "cli",
+        detail: `Logged in using ${data.auth_mode === "chatgpt" ? "ChatGPT" : data.auth_mode}`,
+      };
+    }
+  } catch {
+    // file missing or unreadable - fall through
+  }
+  return null;
+}
+
 export async function checkAuthStatus(apiKey?: string): Promise<AuthStatus> {
   if (apiKey) {
     return {
@@ -38,6 +58,13 @@ export async function checkAuthStatus(apiKey?: string): Promise<AuthStatus> {
 
   if (cachedAuthStatus && Date.now() < cachedAuthStatus.expiresAt) {
     return cachedAuthStatus.status;
+  }
+
+  // Check auth.json directly first - avoids spawning codex on Windows where PATH may be missing.
+  const fileStatus = checkAuthFile();
+  if (fileStatus) {
+    cachedAuthStatus = { status: fileStatus, expiresAt: Date.now() + AUTH_CACHE_TTL_MS };
+    return fileStatus;
   }
 
   try {
@@ -109,14 +136,24 @@ export async function startLogout(): Promise<LoginResult> {
   }
 }
 
+function buildEnv(): NodeJS.ProcessEnv {
+  const env = { ...process.env };
+  if (process.platform === "win32" && env.APPDATA) {
+    const npmBin = `${env.APPDATA}\\npm`;
+    env.PATH = `${npmBin};${env.PATH ?? ""}`;
+  }
+  return env;
+}
+
 function runCodexCommand(args: string[]): Promise<{ stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
+    const command = buildCodexCommand(args);
     execFile(
-      CODEX_CLI,
-      args,
+      command.file,
+      command.args,
       {
         timeout: COMMAND_TIMEOUT_MS,
-        env: { ...process.env },
+        env: buildEnv(),
         maxBuffer: 1024 * 1024,
       },
       (error, stdout, stderr) => {
@@ -135,6 +172,39 @@ function runCodexCommand(args: string[]): Promise<{ stdout: string; stderr: stri
       },
     );
   });
+}
+
+function buildCodexCommand(args: string[]): { file: string; args: string[] } {
+  const codexBinary = resolveCodexBinary();
+
+  if (process.platform === "win32") {
+    const cmdExe = process.env.ComSpec ?? join(process.env.SystemRoot ?? "C:\\Windows", "System32", "cmd.exe");
+    return {
+      file: cmdExe,
+      args: ["/d", "/s", "/c", quoteShellPath(codexBinary), ...args],
+    };
+  }
+
+  return {
+    file: codexBinary,
+    args,
+  };
+}
+
+function resolveCodexBinary(): string {
+  if (process.platform === "win32") {
+    return resolve(process.cwd(), "node_modules", ".bin", "codex.cmd");
+  }
+
+  return resolve(process.cwd(), "node_modules", ".bin", "codex");
+}
+
+function quoteShellPath(commandPath: string): string {
+  if (process.platform !== "win32") {
+    return commandPath;
+  }
+
+  return `"${commandPath.replace(/"/g, '\\"')}"`;
 }
 
 function parseCommandError(error: unknown): AuthStatus {

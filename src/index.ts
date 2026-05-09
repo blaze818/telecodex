@@ -3,6 +3,16 @@ import { checkAuthStatus } from "./codex-auth.js";
 import { findLaunchProfile, formatLaunchProfileBehavior } from "./codex-launch.js";
 import { loadConfig } from "./config.js";
 import { SessionRegistry } from "./session-registry.js";
+import { verifyStartupHealth } from "./startup-health.js";
+
+// On Windows, npm global bin is often missing from PATH when launched via Start-Process.
+// Patch it here so all child processes (including codex spawned by the SDK) can find it.
+if (process.platform === "win32" && process.env.APPDATA) {
+  const npmBin = `${process.env.APPDATA}\\npm`;
+  if (!process.env.PATH?.includes(npmBin)) {
+    process.env.PATH = `${npmBin};${process.env.PATH ?? ""}`;
+  }
+}
 
 let registry: SessionRegistry | undefined;
 let bot: ReturnType<typeof createBot> | undefined;
@@ -11,6 +21,12 @@ try {
   const config = loadConfig();
   registry = new SessionRegistry(config);
   bot = createBot(config, registry);
+  try {
+    await verifyStartupHealth(config);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn(`Startup health warning: ${message}`);
+  }
   await registerCommands(bot);
 
   console.log("TeleCodex running");

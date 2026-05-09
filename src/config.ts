@@ -32,6 +32,8 @@ export interface TeleCodexConfig {
   showTurnTokenUsage: boolean;
   enableTelegramLogin: boolean;
   enableTelegramReactions: boolean;
+  requiredMcpServers: string[];
+  graphifyHealthUrl: string;
 }
 
 export function loadConfig(): TeleCodexConfig {
@@ -66,6 +68,8 @@ export function loadConfig(): TeleCodexConfig {
     optionalString(process.env.ENABLE_TELEGRAM_REACTIONS),
     false,
   );
+  const requiredMcpServers = parseRequiredMcpServers(optionalString(process.env.REQUIRED_MCP_SERVERS));
+  const graphifyHealthUrl = optionalString(process.env.GRAPHIFY_HEALTH_URL) ?? "http://localhost:4000/health";
 
   return {
     telegramBotToken,
@@ -84,15 +88,21 @@ export function loadConfig(): TeleCodexConfig {
     showTurnTokenUsage,
     enableTelegramLogin,
     enableTelegramReactions,
+    requiredMcpServers,
+    graphifyHealthUrl,
   };
 }
 
 /**
  * Workspace is derived automatically:
+ * - CODEX_WORKSPACE env var if set
  * - In Docker: /workspace (the mount point)
  * - Outside Docker: process.cwd()
  */
 function resolveWorkspace(): string {
+  if (process.env.CODEX_WORKSPACE) {
+    return process.env.CODEX_WORKSPACE;
+  }
   if (isRunningInDocker()) {
     return "/workspace";
   }
@@ -250,6 +260,23 @@ function parseToolVerbosity(raw: string | undefined): ToolVerbosity {
       );
       return "summary";
   }
+}
+
+function parseRequiredMcpServers(raw: string | undefined): string[] {
+  if (!raw) {
+    return ["graphify", "home_assistant"];
+  }
+
+  const servers = raw
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+
+  if (servers.length === 0) {
+    return ["graphify", "home_assistant"];
+  }
+
+  return Array.from(new Set(servers));
 }
 
 function parseLaunchProfiles(

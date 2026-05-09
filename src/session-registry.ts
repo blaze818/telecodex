@@ -129,8 +129,17 @@ export class SessionRegistry {
           this.metadata.set(entry.contextKey, entry);
         }
       }
-    } catch {
-      // Silently ignore load errors.
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      try {
+        const corruptPath = `${this.persistPath}.corrupt-${Date.now()}`;
+        writeFileSync(corruptPath, readFileSync(this.persistPath, "utf8"), "utf8");
+      } catch {
+        // If we cannot preserve the corrupt payload, still start fresh.
+      }
+      console.warn(
+        `Failed to load persisted context metadata from ${this.persistPath}: ${detail}. Starting fresh.`,
+      );
     }
   }
 }
